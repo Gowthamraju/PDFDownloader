@@ -4,7 +4,12 @@ import java.io.*;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.channels.Channels;
+import java.nio.channels.ReadableByteChannel;
 import java.time.LocalTime;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PDFDownloader {
     public static void main(String[] args) throws IOException {
@@ -16,56 +21,42 @@ public class PDFDownloader {
                 new InputStreamReader(urlConnection.getInputStream()), 8192);
 
         String inputLine;
-        int i = 0;
-        LocalTime localTime = LocalTime.now();
-        System.out.println(localTime);
+        String inputLine;
+        AtomicInteger i= new AtomicInteger();
+        ExecutorService executorService = Executors.newFixedThreadPool(6);
         while ((inputLine = in.readLine()) != null) {
+            String finalInputLine = inputLine;
+            executorService.submit( () -> {
+                if (finalInputLine.contains("<a href")) {
+                    if (i.get() > 0) {
+                        String pdfUrl = finalInputLine.substring(finalInputLine.indexOf("\""));
+                        // System.out.println(pdfUrl.split(" ")[0]);
+                        int start = finalInputLine.indexOf("href=\"") + 6;
+                        int end = finalInputLine.indexOf("\"", start);
+                        String filename = finalInputLine.substring(start, end);
+                        System.out.println("filename " + ":" + filename);
+                        URL pdflinks = null;
+                        ReadableByteChannel readableByteChannel = null;
+                        FileOutputStream fp = null;
 
-            if (inputLine.contains("<a href")) {
-
-                if (i > 7) {
-
-                    // Faster & safe extraction of href
-                    int start = inputLine.indexOf("href=\"");
-                    if (start == -1) continue;
-
-                    start += 6; // skip href="
-                    int end = inputLine.indexOf("\"", start);
-                    if (end == -1) continue;
-
-                    String pdfUrl = inputLine.substring(start, end);
-
-                    System.out.println("filename: " + pdfUrl);
-
-                    // Extract file name
-                    String filename = pdfUrl.substring(pdfUrl.lastIndexOf("/") + 1);
-
-                    // Faster I/O: use buffered streams
-                    try (InputStream is = new BufferedInputStream(new URL(pdfUrl).openStream());
-                         FileOutputStream fos = new FileOutputStream(filename);
-                         BufferedOutputStream bos = new BufferedOutputStream(fos, 8192)) {
-
-                        byte[] buffer = new byte[8192];
-                        int bytesRead;
-
-                        while ((bytesRead = is.read(buffer)) != -1) {
-                            bos.write(buffer, 0, bytesRead);
+                        try {
+                            pdflinks = new URL(filename);
+                            readableByteChannel = Channels.newChannel(pdflinks.openStream());
+                            fp = new FileOutputStream(filename.substring(filename.lastIndexOf("/") + 1));
+                            fp.getChannel().transferFrom(readableByteChannel, 0, Long.MAX_VALUE);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
                         }
-
-                        System.out.println("✔ Downloaded: " + filename);
-
-                    } catch (Exception e) {
-                        System.out.println("✘ Failed: " + pdfUrl);
-                        e.printStackTrace();
                     }
+                    i.getAndIncrement();
+                    String checkedMark = "\u2713";
+                    System.out.println(checkedMark + " Downloaded: " + "File 1");
                 }
+            });
 
-                i++;
-            }
         }
-        System.out.println(LocalTime.now());
-        System.out.println("Total links found: " + i);
-        in.close();
+        System.out.println(i.get());
+        in.close(); 
 
     }
 }
